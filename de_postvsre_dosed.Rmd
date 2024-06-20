@@ -1,0 +1,118 @@
+---
+title: "deseq2_postvs pre_dosed"
+author: "NM"
+date: '2024-06-14'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+library(DESeq2)
+library(dplyr)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r}
+# Data Preparation:
+countData <- read.csv("22_222_Unblinded_Non_Norm_Counts.csv") # Ensure the first column contains gene symbols
+countData <- countData %>%
+  group_by(SYMBOL) %>%
+  summarize(across(everything(), sum))
+
+View(countData)
+
+```
+
+```{r}
+metaData <- read.csv("edited_targets_unblinded.csv") 
+View(metaData)
+```
+
+```{r}
+countData <- as.data.frame(countData)
+countData <- countData[!is.na(countData$SYMBOL), ]
+rownames(countData) <- countData$SYMBOL
+countData$SYMBOL <- NULL 
+View(countData)
+```
+
+```{r}
+# Get sample names from countData, excluding the first column (assumed to be row names or gene IDs)
+colnames(countData) <- gsub("^X", "", colnames(countData))
+
+cd <- unique(colnames(countData)[-1] )
+# Get sample names from metadata
+md <- unique(metaData$SampleName)
+
+# Function to check for full overlap between two sets
+sets_have_full_overlap <- function(set1, set2) {
+  # Check if one set is a subset of the other
+  return(all(set1 %in% set2) || all(set2 %in% set1))
+}
+# Example usage
+sets_have_full_overlap(cd, md) 
+
+```
+
+```{r}
+# Ensure sample order alignment between countData and metaData
+all(colnames(countData) %in% metaData$SampleName)  # Check if all sample names are present in metaData
+metaData <- metaData[match(colnames(countData), metaData$SampleName), ]
+```
+
+
+```{r}
+# Convert relevant columns to factors (if not already)
+metaData$Dose <- factor(metaData$Dose)
+metaData$Visit <- factor(metaData$Visit)
+metaData$Cohort <- factor(metaData$Flowcell_Batch)
+metaData$Route <- factor(metaData$Route)
+
+```
+
+```{r}
+
+# Differential Expression Results post dose vs pre dose, patient specific changes (Patient ID is NOT used as a co variate (we are not powered for this) so we might pick up patient specific affects/ patient dependent genes)
+
+cohorts_to_analyze <- c("A","B","D","F","C","E","G")
+
+# Loop over each cohort
+for (cohort in cohorts_to_analyze) {
+  # Filter data for the current cohort
+  cohort_countData <- countData[, metaData$Dose == cohort]
+  cohort_metaData <- metaData[metaData$Dose == cohort, ]
+  
+  cohort_metaData$Visit <- relevel(cohort_metaData$Visit, ref = "Day 1 Predose") 
+
+  # Creating a DESeqDataSet object for the cohort 
+  #DEseq does a difference of mean correcting for dispersion for differences between 6 dosed patients.
+  
+  dds <- DESeqDataSetFromMatrix(countData = cohort_countData,
+                                colData = cohort_metaData,
+                                design = ~ Visit)  
+
+  dds <- DESeq(dds)
+  # predose vs day 3:
+  contrast_predose_vs_day3 <- c("Visit","Day 3 48hr", "Day 1 Predose")
+  res_predose_vs_day3 <- results(dds, contrast=contrast_predose_vs_day3)
+  write.csv(res_predose_vs_day3, file = paste0("postvspre/patient_specific/cohort_", cohort, "_day3_vs_predose.csv"))
+
+  # predose vs day 8:
+  contrast_predose_vs_day8 <- c("Visit","Day 8 ", "Day 1 Predose")
+  res_predose_vs_day8 <- results(dds, contrast=contrast_predose_vs_day8)
+  write.csv(res_predose_vs_day8, file = paste0("postvspre/patient_specific/cohort_", cohort, "_day8_vs_predose.csv.csv"))
+  
+}
+```

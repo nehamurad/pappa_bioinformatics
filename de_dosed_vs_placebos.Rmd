@@ -1,0 +1,362 @@
+---
+title: "deseq2_dosed_vs_placebos"
+author: "NM"
+date: '2024-06-14'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+library(DESeq2)
+library(dplyr)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r}
+# Data Preparation:
+countData <- read.csv("22_222_Unblinded_Non_Norm_Counts.csv") # Ensure the first column contains gene symbols
+countData <- countData %>%
+  group_by(SYMBOL) %>%
+  summarize(across(everything(), sum))
+
+View(countData)
+
+```
+
+```{r}
+metaData <- read.csv("edited_targets_unblinded.csv") 
+View(metaData)
+```
+
+```{r}
+countData <- as.data.frame(countData)
+countData <- countData[!is.na(countData$SYMBOL), ]
+rownames(countData) <- countData$SYMBOL
+countData$SYMBOL <- NULL 
+View(countData)
+```
+
+```{r}
+# Get sample names from countData, excluding the first column (assumed to be row names or gene IDs)
+colnames(countData) <- gsub("^X", "", colnames(countData))
+
+cd <- unique(colnames(countData)[-1] )
+# Get sample names from metadata
+md <- unique(metaData$SampleName)
+
+# Function to check for full overlap between two sets
+sets_have_full_overlap <- function(set1, set2) {
+  # Check if one set is a subset of the other
+  return(all(set1 %in% set2) || all(set2 %in% set1))
+}
+# Example usage
+sets_have_full_overlap(cd, md) 
+
+```
+
+```{r}
+# Ensure sample order alignment between countData and metaData
+all(colnames(countData) %in% metaData$SampleName)  # Check if all sample names are present in metaData
+metaData <- metaData[match(colnames(countData), metaData$SampleName), ]
+```
+
+
+```{r}
+# Convert relevant columns to factors (if not already)
+metaData$Dose <- factor(metaData$Dose)
+metaData$Visit <- factor(metaData$Visit)
+metaData$Cohort <- factor(metaData$Flowcell_Batch)
+metaData$Route <- factor(metaData$Route)
+
+```
+
+```{r}
+
+# Differential expression of Dosed vs Placebo groups slicing by cohorts only for IV dosed groups by Visit
+
+# Set the sample name as rownames for metadata table 
+rownames(metaData) <- metaData$SampleName
+
+placebo_countData <- countData[, (metaData$Dose == "P") & (metaData$Route == "IV")] #only IV 
+placebo_metaData <- metaData[(metaData$Dose == "P") & (metaData$Route == "IV"), ] #only IV 
+
+cohorts_to_analyze <- c("A","B","D","F") #Only IV dosed groups
+
+visits_to_analyze <- c("Day 1 Predose","Day 3 48hr", "Day 8 ")
+
+
+# Loop over each cohort and visit
+for (cohort in cohorts_to_analyze) {
+  for (visit in visits_to_analyze) {
+
+    # Filter data for the current cohort and visit
+    cohort_dosed_metaData <- metaData[(metaData$Dose == cohort) & (metaData$Visit == visit), ]
+    cohort_dosed_countData <- countData[, rownames(cohort_dosed_metaData)]
+
+    # Ensure proper sample sizes and avoid errors
+    if (nrow(cohort_dosed_metaData) < 2) {
+      warning(paste("Skipping cohort", cohort, "and visit", visit, "due to insufficient samples."))
+      next  # Skip to the next iteration
+    }
+  
+    # Ensure placebo samples are available for this visit
+    placebo_samples <- placebo_metaData$Visit == visit #slicing placebos by visit too.
+    if (!any(placebo_samples)) {
+      warning(paste("Skipping cohort", cohort, "and visit", visit, "due to lack of placebo samples for this visit."))
+      next  # Skip to the next iteration
+    }
+
+    # Combine dosed and placebo data for the specific visit
+    combined_countData <- cbind(cohort_dosed_countData, placebo_countData[, placebo_samples])
+    combined_metaData <- rbind(cohort_dosed_metaData, placebo_metaData[placebo_samples, ])
+
+    # Creating a DESeqDataSet object
+    dds <- DESeqDataSetFromMatrix(countData = combined_countData,
+                                  colData = combined_metaData,
+                                  design = ~ Dose)
+
+    dds <- DESeq(dds)
+    
+    # Dosed vs Placebo contrast:
+    contrast_dosed_vs_placebo <- c("Dose", cohort, "P")
+    res_dosed_vs_placebo <- results(dds, contrast=contrast_dosed_vs_placebo)
+
+    # Save results to CSV
+    filename <- paste0("dosedvsplacebo/IV_cohort_", cohort, "_", gsub(" ", "_", visit), "_vs_placebo.csv")
+    write.csv(res_dosed_vs_placebo, file = filename)
+
+  } # End of visit loop
+} # End of cohort loop
+```
+
+
+
+```{r}
+
+# Differential expression of Dosed vs Placebo groups slicing by cohorts only for SC dosed groups
+
+# Set the sample name as rownames for metadata table 
+rownames(metaData) <- metaData$SampleName
+
+placebo_countData <- countData[, (metaData$Dose == "P") & (metaData$Route == "SC")] #only SC
+placebo_metaData <- metaData[(metaData$Dose == "P") & (metaData$Route == "SC"), ] #only SC 
+
+cohorts_to_analyze <- c("C","E","G") #Only SC dosed groups
+
+visits_to_analyze <- c("Day 1 Predose","Day 3 48hr", "Day 8 ")
+
+
+# Loop over each cohort and visit
+for (cohort in cohorts_to_analyze) {
+  for (visit in visits_to_analyze) {
+
+    # Filter data for the current cohort and visit
+    cohort_dosed_metaData <- metaData[(metaData$Dose == cohort) & (metaData$Visit == visit), ]
+    cohort_dosed_countData <- countData[, rownames(cohort_dosed_metaData)]
+
+    # Ensure proper sample sizes and avoid errors
+    if (nrow(cohort_dosed_metaData) < 2) {
+      warning(paste("Skipping cohort", cohort, "and visit", visit, "due to insufficient samples."))
+      next  # Skip to the next iteration
+    }
+  
+    # Ensure placebo samples are available for this visit
+    placebo_samples <- placebo_metaData$Visit == visit #slicing placebos by visit too.
+    if (!any(placebo_samples)) {
+      warning(paste("Skipping cohort", cohort, "and visit", visit, "due to lack of placebo samples for this visit."))
+      next  # Skip to the next iteration
+    }
+
+    # Combine dosed and placebo data for the specific visit
+    combined_countData <- cbind(cohort_dosed_countData, placebo_countData[, placebo_samples])
+    combined_metaData <- rbind(cohort_dosed_metaData, placebo_metaData[placebo_samples, ])
+
+    # Creating a DESeqDataSet object
+    dds <- DESeqDataSetFromMatrix(countData = combined_countData,
+                                  colData = combined_metaData,
+                                  design = ~ Dose)
+
+    dds <- DESeq(dds)
+    
+    # Dosed vs Placebo contrast:
+    contrast_dosed_vs_placebo <- c("Dose", cohort, "P")
+    res_dosed_vs_placebo <- results(dds, contrast=contrast_dosed_vs_placebo)
+
+    # Save results to CSV
+    filename <- paste0("dosedvsplacebo/SC_cohort_", cohort, "_", gsub(" ", "_", visit), "_vs_placebo.csv")
+    write.csv(res_dosed_vs_placebo, file = filename)
+
+  } # End of visit loop
+} # End of cohort loop
+```
+
+```{r}
+
+# Differential expression of Dosed vs Placebo groups slicing by cohorts only for IV dosed groups all visits for placebos in IV combined.
+
+# Set the sample name as rownames for metadata table 
+rownames(metaData) <- metaData$SampleName
+
+placebo_countData <- countData[, (metaData$Dose == "P") & (metaData$Route == "IV")] #only IV 
+placebo_metaData <- metaData[(metaData$Dose == "P") & (metaData$Route == "IV"), ] #only IV 
+
+cohorts_to_analyze <- c("A","B","D","F") #Only IV dosed groups
+
+visits_to_analyze <- c("Day 1 Predose","Day 3 48hr", "Day 8 ")
+
+
+# Loop over each cohort and visit
+for (cohort in cohorts_to_analyze) {
+  for (visit in visits_to_analyze) {
+
+    # Filter data for the current cohort and visit
+    cohort_dosed_metaData <- metaData[(metaData$Dose == cohort) & (metaData$Visit == visit), ]
+    cohort_dosed_countData <- countData[, rownames(cohort_dosed_metaData)]
+
+    # Ensure proper sample sizes and avoid errors
+    if (nrow(cohort_dosed_metaData) < 2) {
+      warning(paste("Skipping cohort", cohort, "and visit", visit, "due to insufficient samples."))
+      next  # Skip to the next iteration
+    }
+  
+
+    # Combine dosed and placebo data for the specific visit
+    combined_countData <- cbind(cohort_dosed_countData, placebo_countData)
+    combined_metaData <- rbind(cohort_dosed_metaData, placebo_metaData)
+
+    # Creating a DESeqDataSet object
+    dds <- DESeqDataSetFromMatrix(countData = combined_countData,
+                                  colData = combined_metaData,
+                                  design = ~ Dose)
+
+    dds <- DESeq(dds)
+    
+    # Dosed vs Placebo contrast:
+    contrast_dosed_vs_placebo <- c("Dose", cohort, "P")
+    res_dosed_vs_placebo <- results(dds, contrast=contrast_dosed_vs_placebo)
+
+    # Save results to CSV
+    filename <- paste0("dosedvsplacebo/IVcombined_cohort_", cohort, "_", gsub(" ", "_", visit), "_vs_placebo.csv")
+    write.csv(res_dosed_vs_placebo, file = filename)
+
+  } # End of visit loop
+} # End of cohort loop
+```
+
+
+```{r}
+
+# Differential expression of Dosed vs Placebo groups slicing by cohorts only for SC dosed groups all visits for placebos in SC combined.
+
+# Set the sample name as rownames for metadata table 
+rownames(metaData) <- metaData$SampleName
+
+placebo_countData <- countData[, (metaData$Dose == "P") & (metaData$Route == "SC")] #only SC
+placebo_metaData <- metaData[(metaData$Dose == "P") & (metaData$Route == "SC"), ] #only SC 
+
+cohorts_to_analyze <- c("C","E","G") #Only SC dosed groups
+
+visits_to_analyze <- c("Day 1 Predose","Day 3 48hr", "Day 8 ")
+
+
+# Loop over each cohort and visit
+for (cohort in cohorts_to_analyze) {
+  for (visit in visits_to_analyze) {
+
+    # Filter data for the current cohort and visit
+    cohort_dosed_metaData <- metaData[(metaData$Dose == cohort) & (metaData$Visit == visit), ]
+    cohort_dosed_countData <- countData[, rownames(cohort_dosed_metaData)]
+
+    # Ensure proper sample sizes and avoid errors
+    if (nrow(cohort_dosed_metaData) < 2) {
+      warning(paste("Skipping cohort", cohort, "and visit", visit, "due to insufficient samples."))
+      next  # Skip to the next iteration
+    }
+
+    # Combine dosed and placebo data for the specific visit
+    combined_countData <- cbind(cohort_dosed_countData, placebo_countData)
+    combined_metaData <- rbind(cohort_dosed_metaData, placebo_metaData)
+
+    # Creating a DESeqDataSet object
+    dds <- DESeqDataSetFromMatrix(countData = combined_countData,
+                                  colData = combined_metaData,
+                                  design = ~ Dose)
+
+    dds <- DESeq(dds)
+    
+    # Dosed vs Placebo contrast:
+    contrast_dosed_vs_placebo <- c("Dose", cohort, "P")
+    res_dosed_vs_placebo <- results(dds, contrast=contrast_dosed_vs_placebo)
+
+    # Save results to CSV
+    filename <- paste0("dosedvsplacebo/SCcombined_cohort_", cohort, "_", gsub(" ", "_", visit), "_vs_placebo.csv")
+    write.csv(res_dosed_vs_placebo, file = filename)
+
+  } # End of visit loop
+} # End of cohort loop
+```
+
+```{r}
+
+# Differential expression of Dosed vs Placebo groups slicing by cohorts for all placebos combined regardless of dose route (IV all and SC all).
+
+# Set the sample name as rownames for metadata table 
+rownames(metaData) <- metaData$SampleName
+
+placebo_countData <- countData[, (metaData$Dose == "P")] #both IV and SC
+placebo_metaData <- metaData[(metaData$Dose == "P"), ] #IV and SC 
+
+cohorts_to_analyze <- c("A","B","D","F","C","E","G") #All IV and SC dosed groups
+
+visits_to_analyze <- c("Day 1 Predose","Day 3 48hr", "Day 8 ")
+
+
+# Loop over each cohort and visit
+for (cohort in cohorts_to_analyze) {
+  for (visit in visits_to_analyze) {
+
+    # Filter data for the current cohort and visit
+    cohort_dosed_metaData <- metaData[(metaData$Dose == cohort) & (metaData$Visit == visit), ]
+    cohort_dosed_countData <- countData[, rownames(cohort_dosed_metaData)]
+
+    # Ensure proper sample sizes and avoid errors
+    if (nrow(cohort_dosed_metaData) < 2) {
+      warning(paste("Skipping cohort", cohort, "and visit", visit, "due to insufficient samples."))
+      next  # Skip to the next iteration
+    }
+
+    # Combine dosed and placebo data for the specific visit
+    combined_countData <- cbind(cohort_dosed_countData, placebo_countData)
+    combined_metaData <- rbind(cohort_dosed_metaData, placebo_metaData)
+
+    # Creating a DESeqDataSet object
+    dds <- DESeqDataSetFromMatrix(countData = combined_countData,
+                                  colData = combined_metaData,
+                                  design = ~ Dose)
+
+    dds <- DESeq(dds)
+    
+    # Dosed vs Placebo contrast:
+    contrast_dosed_vs_placebo <- c("Dose", cohort, "P")
+    res_dosed_vs_placebo <- results(dds, contrast=contrast_dosed_vs_placebo)
+
+    # Save results to CSV
+    filename <- paste0("dosedvsplacebo/combined_cohort_", cohort, "_", gsub(" ", "_", visit), "_vs_placebo.csv")
+    write.csv(res_dosed_vs_placebo, file = filename)
+
+  } # End of visit loop
+} # End of cohort loop
+```
+

@@ -1,0 +1,185 @@
+---
+title: "deseq2_postvs pre_placebo"
+author: "NM"
+date: '2024-06-14'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+library(DESeq2)
+library(dplyr)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r}
+# Data Preparation:
+countData <- read.csv("22_222_Unblinded_Non_Norm_Counts.csv") # Ensure the first column contains gene symbols
+countData <- countData %>%
+  group_by(SYMBOL) %>%
+  summarize(across(everything(), sum))
+
+View(countData)
+
+```
+
+```{r}
+metaData <- read.csv("edited_targets_unblinded.csv") 
+View(metaData)
+```
+
+```{r}
+countData <- as.data.frame(countData)
+countData <- countData[!is.na(countData$SYMBOL), ]
+rownames(countData) <- countData$SYMBOL
+countData$SYMBOL <- NULL 
+View(countData)
+```
+
+```{r}
+# Get sample names from countData, excluding the first column (assumed to be row names or gene IDs)
+colnames(countData) <- gsub("^X", "", colnames(countData))
+
+cd <- unique(colnames(countData)[-1] )
+# Get sample names from metadata
+md <- unique(metaData$SampleName)
+
+# Function to check for full overlap between two sets
+sets_have_full_overlap <- function(set1, set2) {
+  # Check if one set is a subset of the other
+  return(all(set1 %in% set2) || all(set2 %in% set1))
+}
+# Example usage
+sets_have_full_overlap(cd, md) 
+
+```
+
+```{r}
+# Ensure sample order alignment between countData and metaData
+all(colnames(countData) %in% metaData$SampleName)  # Check if all sample names are present in metaData
+metaData <- metaData[match(colnames(countData), metaData$SampleName), ]
+```
+
+
+```{r}
+# Convert relevant columns to factors (if not already)
+metaData$Dose <- factor(metaData$Dose)
+metaData$Visit <- factor(metaData$Visit)
+metaData$Cohort <- factor(metaData$Flowcell_Batch)
+metaData$Route <- factor(metaData$Route)
+
+```
+
+```{r}
+
+# Differential Expression Results post vs pre dose for placebos for each visit and each cohort for IV
+
+# Combine data for all placebo samples 
+
+placebo_countData <- countData[, (metaData$Dose == "P") & (metaData$Route == "IV") ]
+placebo_metaData <- metaData[(metaData$Dose == "P") & (metaData$Route == "IV"), ]
+
+placebo_metaData$Visit <- relevel(placebo_metaData$Visit, ref = "Day 1 Predose")
+
+placebo_metaData$Cohort <- factor(placebo_metaData$Cohort)
+placebo_metaData$Visit <- factor(placebo_metaData$Visit)
+
+# Creating a DESeqDataSet object for placebos
+dds_placebo <- DESeqDataSetFromMatrix(countData = placebo_countData,
+                                      colData = placebo_metaData,
+                                      design = ~ Cohort + Visit)
+
+dds_placebo <- DESeq(dds_placebo)
+
+# predose vs day 3 for placebos (across all cohorts):
+contrast_placebo_predose_vs_day3 <- c("Visit", "Day 3 48hr", "Day 1 Predose") 
+res_placebo_predose_vs_day3 <- results(dds_placebo, contrast = contrast_placebo_predose_vs_day3)
+
+# predose vs day 8 for placebos (across all cohorts):
+contrast_placebo_predose_vs_day8 <- c("Visit", "Day 8 ", "Day 1 Predose") 
+res_placebo_predose_vs_day8 <- results(dds_placebo, contrast = contrast_placebo_predose_vs_day8)
+
+# Save results to CSV files
+write.csv(res_placebo_predose_vs_day3, file = "postvspre/placebo_specific/placebo_IV_day3_vs_predose.csv")
+write.csv(res_placebo_predose_vs_day8, file = "postvspre/placebo_specific/placebo_IV_day8_vs_predose.csv")
+```
+
+```{r}
+
+# Differential Expression Results post vs pre dose for placebos for each visit and each cohort for SC
+
+# Combine data for all placebo samples 
+
+placebo_countData <- countData[, (metaData$Dose == "P") & (metaData$Route == "SC") ]
+placebo_metaData <- metaData[(metaData$Dose == "P") & (metaData$Route == "SC"), ]
+
+placebo_metaData$Visit <- relevel(placebo_metaData$Visit, ref = "Day 1 Predose")
+
+placebo_metaData$Cohort <- factor(placebo_metaData$Cohort)
+placebo_metaData$Visit <- factor(placebo_metaData$Visit)
+
+# Creating a DESeqDataSet object for placebos
+dds_placebo <- DESeqDataSetFromMatrix(countData = placebo_countData,
+                                      colData = placebo_metaData,
+                                      design = ~ Cohort + Visit)
+
+dds_placebo <- DESeq(dds_placebo)
+
+# predose vs day 3 for placebos (across all cohorts):
+contrast_placebo_predose_vs_day3 <- c("Visit", "Day 3 48hr", "Day 1 Predose") 
+res_placebo_predose_vs_day3 <- results(dds_placebo, contrast = contrast_placebo_predose_vs_day3)
+
+# predose vs day 8 for placebos (across all cohorts):
+contrast_placebo_predose_vs_day8 <- c("Visit", "Day 8 ", "Day 1 Predose") 
+res_placebo_predose_vs_day8 <- results(dds_placebo, contrast = contrast_placebo_predose_vs_day8)
+
+# Save results to CSV files
+write.csv(res_placebo_predose_vs_day3, file = "postvspre/placebo_specific/placebo_SC_day3_vs_predose.csv")
+write.csv(res_placebo_predose_vs_day8, file = "postvspre/placebo_specific/placebo_SC_day8_vs_predose.csv")
+```
+
+```{r}
+
+# Differential Expression Results dosed vs placebo for each visit and each cohort)
+
+# Combine data for all placebo samples regardless of dose route but account for cohort and visit as covariates
+
+placebo_countData <- countData[, metaData$Dose == "P"]
+placebo_metaData <- metaData[metaData$Dose == "P", ]
+
+placebo_metaData$Visit <- relevel(placebo_metaData$Visit, ref = "Day 1 Predose")
+
+placebo_metaData$Cohort <- factor(placebo_metaData$Cohort)
+placebo_metaData$Visit <- factor(placebo_metaData$Visit)
+
+# Creating a DESeqDataSet object for placebos
+dds_placebo <- DESeqDataSetFromMatrix(countData = placebo_countData,
+                                      colData = placebo_metaData,
+                                      design = ~ Cohort + Visit)
+
+dds_placebo <- DESeq(dds_placebo)
+
+# predose vs day 3 for placebos (across all cohorts):
+contrast_placebo_predose_vs_day3 <- c("Visit", "Day 3 48hr", "Day 1 Predose") 
+res_placebo_predose_vs_day3 <- results(dds_placebo, contrast = contrast_placebo_predose_vs_day3)
+
+# predose vs day 8 for placebos (across all cohorts):
+contrast_placebo_predose_vs_day8 <- c("Visit", "Day 8 ", "Day 1 Predose") 
+res_placebo_predose_vs_day8 <- results(dds_placebo, contrast = contrast_placebo_predose_vs_day8)
+
+# Save results to CSV files
+write.csv(res_placebo_predose_vs_day3, file = "postvspre/placebo_specific/placebo_combinedroutes_day3_vs_predose.csv")
+write.csv(res_placebo_predose_vs_day8, file = "postvspre/placebo_specific/placebo_combinedroutes_day8_vs_predose.csv")
+```
